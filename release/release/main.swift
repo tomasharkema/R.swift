@@ -11,6 +11,7 @@
 import Foundation
 
 let Brew = "/usr/local/bin/brew"
+let Git = "/usr/bin/git"
 
 enum TaskResult {
   case Success([String])
@@ -32,20 +33,25 @@ func runTask(command: String, args: [String]) -> TaskResult {
   task.launchPath = command
   task.arguments = args
 
-  let pipe = NSPipe()
-  task.standardOutput = pipe
+  let outputPipe = NSPipe()
+  task.standardOutput = outputPipe
 
-  let fileHandle = pipe.fileHandleForReading
+  let errorPipe = NSPipe()
+  task.standardError = errorPipe
+
+  let outputPipeFile = outputPipe.fileHandleForReading
+  let errorPipeFile = errorPipe.fileHandleForReading
 
   task.launch()
 
-  let data = fileHandle.readDataToEndOfFile()
+  let outputData = outputPipeFile.readDataToEndOfFile()
+  let errorData = errorPipeFile.readDataToEndOfFile()
 
-  if let standardOut = String(data: data, encoding: NSUTF8StringEncoding) {
+  if let standardOut = String(data: outputData, encoding: NSUTF8StringEncoding) {
     return .Success(standardOut.componentsSeparatedByString("\n"))
   }
 
-  return .Error("")
+  return .Error(String(data: errorData, encoding: NSUTF8StringEncoding) ?? "could not determine error")
 }
 
 func getJson(url: NSURL) -> AnyObject? {
@@ -74,7 +80,7 @@ func rswiftLatestReleaseTag() -> String? {
 }
 
 func rswiftLatestReleaseCommitSha(tag: String) -> String? {
-  guard let commitHash = runTask("/usr/bin/git", args: ["rev-parse", tag]).result?.first else {
+  guard let commitHash = runTask(Git, args: ["rev-parse", tag]).result?.first else {
     return nil
   }
 
@@ -83,9 +89,9 @@ func rswiftLatestReleaseCommitSha(tag: String) -> String? {
 
 // make brew up-to-date
 
-let brewUpdate = runTask(Brew, args: ["update"])
+let brewUpdate = runTask(Brew, args: ["update"]).result?.joinWithSeparator("\n") ?? "Could not update brew"
 
-print(brewUpdate)
+print("Update brew", brewUpdate)
 
 // get repository path
 
@@ -146,3 +152,10 @@ do {
 }
 
 print("-- Updated \(rswiftFormulaPath)")
+
+switch runTask(Brew, args: ["audit", "rswift"]) {
+case let .Success(auditSuccess):
+  print(auditSuccess)
+case let .Error(error):
+  print(error)
+}
